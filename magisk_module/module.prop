@@ -1,0 +1,7 @@
+id=openavplugin
+name=OpenAVPlugin
+version=1.0.0
+versionCode=1
+author=OpenAVPlugin
+description=Virtual Camera and Microphone Plugin for Android
+updateJson=

@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenAVPlugin</string>
+
+    <!-- 导航 -->
+    <string name="nav_home">首页</string>
+    <string name="nav_apps">应用管理</string>
+    <string name="nav_sources">数据源</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- 首页 -->
+    <string name="runtime_status">运行状态</string>
+    <string name="lsposed_active">LSPosed 已激活</string>
+    <string name="root_mode">Root 模式</string>
+    <string name="not_activated">未激活</string>
+    <string name="global_controls">全局控制</string>
+    <string name="virtual_camera">虚拟摄像头</string>
+    <string name="virtual_microphone">虚拟麦克风</string>
+    <string name="active">已激活</string>
+    <string name="inactive">未激活</string>
+    <string name="active_apps">已启用应用</string>
+    <string name="no_apps_configured">暂无配置的应用</string>
+    <string name="no_apps_found">未找到应用</string>
+
+    <!-- 应用管理 -->
+    <string name="app_management">应用管理</string>
+    <string name="search_apps">搜索应用...</string>
+    <string name="configure">配置</string>
+
+    <!-- 数据源管理 -->
+    <string name="source_manager">数据源管理</string>
+    <string name="video">视频</string>
+    <string name="audio">音频</string>
+    <string name="local_video_files">本地视频文件</string>
+    <string name="add_video_file">添加视频文件</string>
+    <string name="network_streams">网络串流</string>
+    <string name="add_stream_url">添加串流地址</string>
+    <string name="screen_capture">屏幕捕获</string>
+    <string name="configure_screen_capture">配置屏幕捕获</string>
+    <string name="silence_mode">静音模式</string>
+    <string name="silent_no_sound">静音（无声）</string>
+    <string name="local_audio_files">本地音频文件</string>
+    <string name="add_audio_file">添加音频文件</string>
+    <string name="system_audio_capture">系统音频捕获</string>
+    <string name="configure_system_audio">配置系统音频捕获</string>
+    <string name="delete">删除</string>
+    <string name="add">添加</string>
+
+    <!-- 设置 -->
+    <string name="settings">设置</string>
+    <string name="runtime_mode">运行模式</string>
+    <string name="auto_detect">自动检测</string>
+    <string name="auto_detect_desc">自动检测可用的运行模式</string>
+    <string name="lsposed_mode">LSPosed 模式</string>
+    <string name="lsposed_mode_desc">需要 LSPosed 框架</string>
+    <string name="root_mode_option">Root 模式</string>
+    <string name="root_mode_desc">需要 Magisk/Root 权限</string>
+    <string name="detected">检测到：</string>
+    <string name="none">无</string>
+    <string name="general">通用</string>
+    <string name="boot_auto_start">开机自启动</string>
+    <string name="log_level">日志级别</string>
+    <string name="about">关于</string>
+    <string name="version">版本</string>
+    <string name="about_desc">Android 虚拟摄像头和麦克风插件</string>
+
+    <!-- 权限 -->
+    <string name="permissions_granted">所有权限已授予</string>
+    <string name="permissions_denied_single">权限被拒绝，部分功能可能无法使用</string>
+    <string name="permissions_denied_multiple">部分权限被拒绝，部分功能可能无法使用</string>
+    <string name="storage_permission">存储权限</string>
+    <string name="storage_permission_desc">需要此权限以访问视频和音频文件</string>
+    <string name="notification_permission">通知权限</string>
+    <string name="notification_permission_desc">需要此权限以运行屏幕捕获服务</string>
+    <string name="grant_permission">授予权限</string>
+    <string name="permission_required">需要权限</string>
+    <string name="permission_required_desc">此权限是应用正常运行所必需的</string>
+    <string name="granted">已授予</string>
+    <string name="not_granted">未授予</string>
+    <string name="refresh">刷新状态</string>
+
+    <!-- 首页 -->
+    <string name="mode_set_in_settings">已在设置中配置</string>
+
+    <!-- 权限引导 -->
+    <string name="permission_guide">权限引导</string>
+    <string name="permission_status_summary">已授予 %1$d/%2$d 项权限</string>
+    <string name="permission_guide_desc">请授予所有权限以确保功能正常</string>
+    <string name="autostart_permission">自启动权限</string>
+    <string name="autostart_permission_desc">需要此权限以确保开机自启动</string>
+    <string name="battery_optimization">电池优化</string>
+    <string name="battery_optimization_desc">关闭以防止系统杀死应用</string>
+    <string name="overlay_permission">悬浮窗权限</string>
+    <string name="overlay_permission_desc">需要此权限以显示虚拟摄像头覆盖层</string>
+    <string name="open_settings">打开设置</string>
+    <string name="disable">关闭</string>
+    <string name="xiaomi_tips">小米/MIUI 提示</string>
+    <string name="xiaomi_tips_desc">小米设备：请将 OpenAVPlugin 加入"锁定后台"列表，并在开发者选项中关闭"MIUI 优化"（如需要）。</string>
+
+    <!-- 应用配置 -->
+    <string name="app_config">应用配置</string>
+    <string name="camera_config_desc">为此应用启用虚拟摄像头</string>
+    <string name="mic_config_desc">为此应用启用虚拟麦克风</string>
+</resources>

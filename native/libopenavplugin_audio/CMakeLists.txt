@@ -1,0 +1,2 @@
+add_library(openavplugin_audio SHARED audio_hook.cpp)
+target_link_libraries(openavplugin_audio log)
