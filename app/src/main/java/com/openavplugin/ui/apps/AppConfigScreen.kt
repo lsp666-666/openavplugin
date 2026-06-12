@@ -44,9 +44,11 @@ class AppConfigViewModel @Inject constructor(
 
     fun saveOrUpdateRule(rule: AppRule) {
         viewModelScope.launch {
-            ruleDao.insertRule(rule)
-            sharedConfigManager.saveRule(rule)
-            _appRule.value = rule
+            val ruleWithTimestamp = rule.copy(updatedAt = System.currentTimeMillis(),
+                createdAt = if (rule.createdAt == 0L) System.currentTimeMillis() else rule.createdAt)
+            ruleDao.insertRule(ruleWithTimestamp)
+            sharedConfigManager.saveRule(ruleWithTimestamp)
+            _appRule.value = ruleWithTimestamp
         }
     }
 

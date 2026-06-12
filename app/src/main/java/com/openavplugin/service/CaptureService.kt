@@ -9,6 +9,8 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.openavplugin.provider.video.ScreenCaptureVideoSource
+import com.openavplugin.provider.audio.SystemCaptureAudioSource
 import com.openavplugin.ui.MainActivity
 
 class CaptureService : Service() {
@@ -19,6 +21,10 @@ class CaptureService : Service() {
         const val ACTION_STOP = "com.openavplugin.STOP_CAPTURE"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+
+        // Shared provider references — set by the UI before starting capture
+        var screenCaptureSource: ScreenCaptureVideoSource? = null
+        var audioCaptureSource: SystemCaptureAudioSource? = null
 
         fun startService(context: Context, resultCode: Int, resultData: Intent) {
             val intent = Intent(context, CaptureService::class.java).apply {
@@ -97,11 +103,19 @@ class CaptureService : Service() {
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
 
-        // TODO: Initialize video/audio capture with the projection
-        // Pass to ScreenCaptureVideoSource and SystemCaptureAudioSource
+        // Pass the MediaProjection to registered capture sources
+        screenCaptureSource?.let { source ->
+            source.startCapture(mediaProjection!!)
+        }
+
+        audioCaptureSource?.let { source ->
+            source.startCapture(mediaProjection!!)
+        }
     }
 
     private fun stopCapture() {
+        screenCaptureSource = null
+        audioCaptureSource = null
         mediaProjection?.stop()
         mediaProjection = null
     }

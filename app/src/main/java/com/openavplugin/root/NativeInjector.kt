@@ -8,9 +8,14 @@ object NativeInjector {
 
     external fun initCameraHook()
     external fun initAudioHook()
+    external fun isCameraHookActive(): Boolean
+    external fun isAudioHookActive(): Boolean
 
     fun initialize() {
         initCameraHook()
         initAudioHook()
     }
+
+    val isActive: Boolean
+        get() = isCameraHookActive() || isAudioHookActive()
 }

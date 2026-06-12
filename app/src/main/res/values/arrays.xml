@@ -3,5 +3,15 @@
     <string-array name="xposed_scope">
         <item>com.android.camera</item>
         <item>com.android.camera2</item>
+        <item>com.tencent.mm</item>
+        <item>com.tencent.mobileqq</item>
+        <item>com.eg.android.AlipayGphone</item>
+        <item>com.ss.android.ugc.aweme</item>
+        <item>com.smile.gifmaker</item>
+        <item>com.xingin.xhs</item>
+        <item>com.zhiliaoapp.musically</item>
+        <item>com.tencent.wework</item>
+        <item>com.alibaba.android.rimet</item>
+        <item>com.tencent.tim</item>
     </string-array>
 </resources>

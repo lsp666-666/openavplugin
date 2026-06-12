@@ -1,6 +1,5 @@
 package com.openavplugin.provider.audio
 
-import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -10,7 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
 
-class LocalFileAudioSource(private val context: Context) : AudioSource {
+class LocalFileAudioSource : AudioSource {
     private var extractor: MediaExtractor? = null
     private var codec: MediaCodec? = null
     private var isInitialized = false
@@ -47,26 +46,34 @@ class LocalFileAudioSource(private val context: Context) : AudioSource {
         withContext(Dispatchers.IO) {
             val ext = extractor ?: return@withContext 0
             val dec = codec ?: return@withContext 0
+            val safeOffset = offset.coerceIn(0, buffer.size)
 
             // Feed input
             val inputIndex = dec.dequeueInputBuffer(10000)
             if (inputIndex >= 0) {
-                val inputBuffer = dec.getInputBuffer(inputIndex)!!
+                val inputBuffer = dec.getInputBuffer(inputIndex) ?: return@withContext 0
                 val sampleSize = ext.readSampleData(inputBuffer, 0)
                 if (sampleSize > 0) {
                     dec.queueInputBuffer(inputIndex, 0, sampleSize, ext.sampleTime, 0)
                     ext.advance()
                 } else {
+                    // Loop back to start
                     ext.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                    // Feed a fresh sample after seeking
+                    val retrySample = ext.readSampleData(inputBuffer, 0)
+                    if (retrySample > 0) {
+                        dec.queueInputBuffer(inputIndex, 0, retrySample, 0, 0)
+                        ext.advance()
+                    }
                 }
             }
 
             // Get output
             val outputIndex = dec.dequeueOutputBuffer(bufferInfo, 10000)
             if (outputIndex >= 0) {
-                val outputBuffer = dec.getOutputBuffer(outputIndex)
-                val bytesToRead = minOf(size, bufferInfo.size)
-                outputBuffer?.get(buffer, offset, bytesToRead)
+                val outputBuffer = dec.getOutputBuffer(outputIndex) ?: return@withContext 0
+                val bytesToRead = minOf(size, (buffer.size - safeOffset).coerceAtMost(bufferInfo.size))
+                outputBuffer.get(buffer, safeOffset, bytesToRead)
                 dec.releaseOutputBuffer(outputIndex, false)
                 return@withContext bytesToRead
             }

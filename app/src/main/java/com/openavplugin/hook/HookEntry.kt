@@ -13,65 +13,69 @@ class HookEntry : IXposedHookLoadPackage {
         private const val CONFIG_FILE = "openavplugin_rules.json"
     }
 
+    private var cameraHooker: CameraHooker? = null
+    private var audioHooker: AudioHooker? = null
+
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         val packageName = lpparam.packageName
 
+        // Don't hook our own app
         if (packageName == "com.openavplugin") return
 
         XposedBridge.log("$TAG: Loaded in $packageName")
 
-        val shouldHook = shouldHookApp(packageName)
-
-        if (!shouldHook) {
-            XposedBridge.log("$TAG: Skipping $packageName (not in target list)")
+        val config = loadAppConfig(packageName)
+        if (config == null) {
+            XposedBridge.log("$TAG: No config for $packageName — skipping")
             return
         }
 
         XposedBridge.log("$TAG: Hooking $packageName")
 
-        val config = loadAppConfig(packageName)
-
+        // Camera hook
         if (config.optBoolean("cameraEnabled", false)) {
-            XposedBridge.log("$TAG: Hooking camera for $packageName")
-            val cameraHooker = CameraHooker(lpparam)
-            cameraHooker.hook()
+            val cameraConfig = CameraHooker.CameraHookConfig(
+                sourceType = config.optString("cameraSourceType", "local"),
+                sourcePath = config.optString("cameraSourcePath", null),
+                width = parseResolutionWidth(config.optString("cameraResolution", "1280x720")),
+                height = parseResolutionHeight(config.optString("cameraResolution", "1280x720"))
+            )
+            cameraHooker = CameraHooker(lpparam, cameraConfig)
+            cameraHooker?.hook()
+            XposedBridge.log("$TAG: Camera hook installed for $packageName")
         }
 
+        // Microphone hook
         if (config.optBoolean("micEnabled", false)) {
-            XposedBridge.log("$TAG: Hooking microphone for $packageName")
-            val audioHooker = AudioHooker(lpparam)
-            audioHooker.hook()
+            val audioConfig = AudioHooker.AudioHookConfig(
+                sourceType = config.optString("micSourceType", "silence"),
+                sourcePath = config.optString("micSourcePath", null),
+                sampleRate = config.optInt("micSampleRate", 44100),
+                channels = config.optInt("micChannels", 1)
+            )
+            audioHooker = AudioHooker(lpparam, audioConfig)
+            audioHooker?.hook()
+            XposedBridge.log("$TAG: Audio hook installed for $packageName")
         }
     }
 
-    private fun shouldHookApp(packageName: String): Boolean {
+    private fun loadAppConfig(packageName: String): JSONObject? {
         return try {
             val configFile = getConfigFile()
             if (!configFile.exists()) {
                 XposedBridge.log("$TAG: Config file not found")
-                return false
+                return null
             }
 
             val json = JSONObject(configFile.readText())
-            val hasRule = json.has(packageName)
-            XposedBridge.log("$TAG: Config check for $packageName: $hasRule")
-            hasRule
+            val appConfig = json.optJSONObject(packageName)
+            if (appConfig != null) {
+                XposedBridge.log("$TAG: Config found for $packageName: $appConfig")
+            }
+            appConfig
         } catch (e: Exception) {
-            XposedBridge.log("$TAG: Error checking hook config: ${e.message}")
-            false
-        }
-    }
-
-    private fun loadAppConfig(packageName: String): JSONObject {
-        return try {
-            val configFile = getConfigFile()
-            if (!configFile.exists()) return JSONObject()
-
-            val json = JSONObject(configFile.readText())
-            json.optJSONObject(packageName) ?: JSONObject()
-        } catch (e: Exception) {
-            XposedBridge.log("$TAG: Error loading app config: ${e.message}")
-            JSONObject()
+            XposedBridge.log("$TAG: Error loading config: ${e.message}")
+            null
         }
     }
 
@@ -81,5 +85,21 @@ class HookEntry : IXposedHookLoadPackage {
             sharedDir.mkdirs()
         }
         return File(sharedDir, CONFIG_FILE)
+    }
+
+    private fun parseResolutionWidth(resolution: String): Int {
+        return try {
+            resolution.split("x").firstOrNull()?.toIntOrNull() ?: 1280
+        } catch (_: Exception) {
+            1280
+        }
+    }
+
+    private fun parseResolutionHeight(resolution: String): Int {
+        return try {
+            resolution.split("x").lastOrNull()?.toIntOrNull() ?: 720
+        } catch (_: Exception) {
+            720
+        }
     }
 }

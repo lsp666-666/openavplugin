@@ -143,7 +143,7 @@ git clone https://github.com/lsp666-666/openavplugin.git
 
 ## 许可证
 
-本项目仅供学习交流使用。
+本项目基于 Apache License 2.0 开源，详见 [LICENSE](LICENSE) 文件。
 
 ## 免责声明
 
@@ -152,3 +152,4 @@ git clone https://github.com/lsp666-666/openavplugin.git
 ## 联系方式
 
 - GitHub Issues: [提交问题](https://github.com/lsp666-666/openavplugin/issues)
+- 变更日志: [CHANGELOG](CHANGELOG.md)

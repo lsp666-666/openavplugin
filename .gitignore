@@ -10,7 +10,6 @@ build
 .cxx
 local.properties
 *.zip
-gradle/wrapper/gradle-wrapper.jar
 *.apk
 *.ap_
 *.dex

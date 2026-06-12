@@ -1,6 +1,5 @@
 package com.openavplugin.provider.video
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.graphics.YuvImage
@@ -15,7 +14,7 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 
-class LocalFileVideoSource(private val context: Context) : VideoSource {
+class LocalFileVideoSource : VideoSource {
     private var extractor: MediaExtractor? = null
     private var codec: MediaCodec? = null
     private var isInitialized = false
@@ -55,7 +54,7 @@ class LocalFileVideoSource(private val context: Context) : VideoSource {
         // Feed input
         val inputIndex = dec.dequeueInputBuffer(10000)
         if (inputIndex >= 0) {
-            val inputBuffer = dec.getInputBuffer(inputIndex)!!
+            val inputBuffer = dec.getInputBuffer(inputIndex) ?: return@withContext null
             val sampleSize = ext.readSampleData(inputBuffer, 0)
             if (sampleSize > 0) {
                 dec.queueInputBuffer(inputIndex, 0, sampleSize, ext.sampleTime, 0)
@@ -63,15 +62,20 @@ class LocalFileVideoSource(private val context: Context) : VideoSource {
             } else {
                 // Loop back to start
                 ext.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                val retrySample = ext.readSampleData(inputBuffer, 0)
+                if (retrySample > 0) {
+                    dec.queueInputBuffer(inputIndex, 0, retrySample, 0, 0)
+                    ext.advance()
+                }
             }
         }
 
         // Get output
         val outputIndex = dec.dequeueOutputBuffer(bufferInfo, 10000)
         if (outputIndex >= 0) {
-            val outputBuffer = dec.getOutputBuffer(outputIndex)
+            val outputBuffer = dec.getOutputBuffer(outputIndex) ?: return@withContext null
             val frameData = ByteArray(bufferInfo.size)
-            outputBuffer?.get(frameData)
+            outputBuffer.get(frameData)
             dec.releaseOutputBuffer(outputIndex, false)
 
             return@withContext Frame(

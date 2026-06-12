@@ -72,8 +72,13 @@ class ConfigManager(private val context: Context) {
         dataStore.edit { it[BOOT_AUTO_START] = enabled }
     }
 
+    /**
+     * Synchronous access to runtime mode.
+     * Uses a short IO-dispatched runBlocking to avoid potential ANR on main thread.
+     * Prefer collecting the [runtimeMode] Flow in coroutine contexts instead.
+     */
     fun getRuntimeModeSync(): RuntimeMode {
-        return runBlocking {
+        return kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
             dataStore.data.first()[RUNTIME_MODE]?.let { modeString ->
                 when (modeString) {
                     "LSPOSED" -> RuntimeMode.LSPOSED

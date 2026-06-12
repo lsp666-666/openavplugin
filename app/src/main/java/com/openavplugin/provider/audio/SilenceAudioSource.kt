@@ -12,8 +12,10 @@ class SilenceAudioSource : AudioSource {
 
     override suspend fun read(buffer: ByteArray, offset: Int, size: Int): Int {
         if (!isInitialized) return 0
-        buffer.fill(0, offset, offset + size)
-        return size
+        val safeOffset = offset.coerceIn(0, buffer.size)
+        val safeEnd = (offset + size).coerceIn(safeOffset, buffer.size)
+        buffer.fill(0, safeOffset, safeEnd)
+        return safeEnd - safeOffset
     }
 
     override suspend fun release() {
