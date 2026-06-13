@@ -42,9 +42,12 @@ class AudioHooker(
     }
 
     private fun initializeAudioSource() {
-        audioSource = when {
-            config.sourcePath != null -> LocalFileAudioSource()
-            else -> SilenceAudioSource()
+        audioSource = when (config.sourceType) {
+            "silence", "SILENCE" -> SilenceAudioSource()
+            else -> when {
+                config.sourcePath != null -> LocalFileAudioSource()
+                else -> SilenceAudioSource()
+            }
         }
 
         scope.launch {

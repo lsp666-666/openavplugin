@@ -1,8 +1,11 @@
 package com.openavplugin.ui.apps
 
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
+import android.net.Uri
+import android.provider.Settings
 import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -26,6 +29,8 @@ import androidx.lifecycle.viewModelScope
 import com.openavplugin.R
 import com.openavplugin.data.db.AppRule
 import com.openavplugin.data.db.RuleDao
+import com.openavplugin.permission.PermissionHelper
+import com.openavplugin.util.Logger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -56,6 +61,9 @@ class AppListViewModel @Inject constructor(
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
 
+    private val _needsAppListPermission = mutableStateOf(false)
+    val needsAppListPermission: State<Boolean> = _needsAppListPermission
+
     fun loadApps(context: android.content.Context) {
         viewModelScope.launch {
             _isLoading.value = true
@@ -84,6 +92,10 @@ class AppListViewModel @Inject constructor(
             }
             _installedApps.value = apps
             _isLoading.value = false
+            Logger.i("Apps", "Loaded ${apps.size} installed apps")
+            // Detect if QUERY_ALL_PACKAGES is missing (only self visible)
+            _needsAppListPermission.value = apps.size <= 1
+                    && !PermissionHelper.hasAppListPermission(context)
         }
     }
 
@@ -108,7 +120,6 @@ class AppListViewModel @Inject constructor(
 @Composable
 fun AppListScreen(
     viewModel: AppListViewModel = hiltViewModel(),
-    onNavigateBack: () -> Unit,
     onAppClick: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -116,6 +127,7 @@ fun AppListScreen(
     val rules by viewModel.rules.collectAsState()
     val installedApps by viewModel.installedApps
     val isLoading by viewModel.isLoading
+    val needsAppListPermission by viewModel.needsAppListPermission
 
     LaunchedEffect(Unit) {
         viewModel.loadApps(context)
@@ -129,24 +141,11 @@ fun AppListScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.app_management)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = null)
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            OutlinedTextField(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+    ) {
+        OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { viewModel.setSearchQuery(it) },
                 modifier = Modifier
@@ -156,6 +155,46 @@ fun AppListScreen(
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true
             )
+
+            if (needsAppListPermission) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.app_list_permission),
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                stringResource(R.string.app_list_permission_hint),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            }
+                        ) {
+                            Text(stringResource(R.string.grant_permission))
+                        }
+                    }
+                }
+            }
 
             if (isLoading) {
                 Box(
@@ -249,4 +288,3 @@ fun AppListScreen(
             }
         }
     }
-}

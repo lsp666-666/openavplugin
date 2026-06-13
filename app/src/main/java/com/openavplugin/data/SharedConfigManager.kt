@@ -1,14 +1,15 @@
 package com.openavplugin.data
 
 import android.content.Context
-import android.os.Environment
 import com.openavplugin.data.db.AppRule
+import com.openavplugin.util.Logger
 import org.json.JSONObject
 import java.io.File
 
 class SharedConfigManager(private val context: Context) {
 
     companion object {
+        private const val TAG = "OpenAVPlugin-Config"
         private const val CONFIG_FILE = "openavplugin_rules.json"
     }
 
@@ -26,6 +27,7 @@ class SharedConfigManager(private val context: Context) {
         }
         json.put(rule.packageName, appJson)
         saveAllRules(json)
+        Logger.i(TAG, "Rule saved: ${rule.packageName} camera=${rule.cameraEnabled} mic=${rule.micEnabled}")
     }
 
     fun removeRule(packageName: String) {
@@ -59,17 +61,35 @@ class SharedConfigManager(private val context: Context) {
     private fun saveAllRules(json: JSONObject) {
         try {
             val file = getConfigFile()
+            file.parentFile?.mkdirs()
             file.writeText(json.toString(2))
+            Logger.i(TAG, "Config written: ${file.absolutePath} (${file.length()}B, ${json.length()} apps)")
+            // Write to SharedPreferences for XSharedPreferences access
+            val prefs = context.getSharedPreferences("openavplugin_rules", android.content.Context.MODE_PRIVATE)
+            prefs.edit().putString("rules", json.toString()).apply()
+            Logger.i(TAG, "Config saved to SharedPreferences")
+            // Also write to files dir for HookEntry direct access
+            val hookFile = java.io.File(context.filesDir, "openavplugin_rules.json")
+            hookFile.writeText(json.toString(2))
+            hookFile.setReadable(true, false)
+            Logger.i(TAG, "Config saved to files dir: ${hookFile.absolutePath}")
+            // Copy to /data/local/tmp/ via su — only truly world-readable location
+            Thread({
+                try {
+                    val tmpPath = "/data/local/tmp/openavplugin_rules.json"
+                    Runtime.getRuntime().exec(arrayOf("su", "-c", "cp ${hookFile.absolutePath} $tmpPath && chmod 644 $tmpPath")).waitFor()
+                    Logger.i(TAG, "Config copied to $tmpPath via su")
+                } catch (_: Exception) {
+                    Logger.w(TAG, "su copy failed — grant root to OpenAVPlugin in Magisk")
+                }
+            }).start()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Logger.e(TAG, "Failed to write config: ${e.message}")
         }
     }
 
     private fun getConfigFile(): File {
-        val dir = File(context.getExternalFilesDir(null), "")
-        if (!dir.exists()) {
-            dir.mkdirs()
-        }
-        return File(dir, CONFIG_FILE)
+        // Root of external storage — accessible cross-process with MANAGE_EXTERNAL_STORAGE
+        return File(android.os.Environment.getExternalStorageDirectory(), CONFIG_FILE)
     }
 }

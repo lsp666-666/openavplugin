@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,10 +19,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.openavplugin.R
 import com.openavplugin.permission.PermissionHelper
+import com.openavplugin.util.Logger
 
 data class PermissionItem(
     val name: String,
@@ -37,7 +42,24 @@ fun PermissionGuideScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var permissions by remember { mutableStateOf(listOf<PermissionItem>()) }
+
+    // Intercept system back button
+    BackHandler { onNavigateBack() }
+
+    // Auto-refresh on every resume (when returning from settings)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                permissions = checkAllPermissions(context)
+                val granted = permissions.count { it.isGranted }
+                Logger.d("Perm", "Permissions refreshed: $granted/${permissions.size}")
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(Unit) {
         permissions = checkAllPermissions(context)
@@ -50,11 +72,6 @@ fun PermissionGuideScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = null)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { permissions = checkAllPermissions(context) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
                     }
                 }
             )
@@ -158,10 +175,11 @@ fun checkAllPermissions(context: Context): List<PermissionItem> {
     return listOf(
         checkStoragePermission(context),
         checkNotificationPermission(context),
+        checkAppListPermission(context),
         checkAutostartPermission(context),
         checkBatteryOptimization(context),
         checkOverlayPermission(context),
-        checkLSPosedModule()
+        checkLSPosedModule(context)
     )
 }
 
@@ -203,6 +221,22 @@ private fun checkNotificationPermission(context: Context): PermissionItem {
         action = {
             val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
                 putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            }
+            context.startActivity(intent)
+        }
+    )
+}
+
+private fun checkAppListPermission(context: Context): PermissionItem {
+    val isGranted = PermissionHelper.hasAppListPermission(context)
+    return PermissionItem(
+        name = context.getString(R.string.app_list_permission),
+        description = context.getString(R.string.app_list_permission_desc),
+        isGranted = isGranted,
+        actionLabel = context.getString(R.string.grant_permission),
+        action = {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
             }
             context.startActivity(intent)
         }
@@ -278,14 +312,17 @@ private fun checkOverlayPermission(context: Context): PermissionItem {
     )
 }
 
-private fun checkLSPosedModule(): PermissionItem {
+private fun checkLSPosedModule(context: Context): PermissionItem {
     val isLSPosedInstalled = try {
-        val process = Runtime.getRuntime().exec(arrayOf("pm", "list", "packages"))
-        val reader = process.inputStream.bufferedReader()
-        val packages = reader.readText()
-        packages.contains("org.lsposed.manager") || packages.contains("org.lsposed.lspd")
+        context.packageManager.getPackageInfo("org.lsposed.manager", 0)
+        true
     } catch (e: Exception) {
-        false
+        try {
+            context.packageManager.getPackageInfo("org.lsposed.lspd", 0)
+            true
+        } catch (e2: Exception) {
+            false
+        }
     }
     return PermissionItem(
         name = "LSPosed",

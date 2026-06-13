@@ -18,6 +18,7 @@ import com.openavplugin.provider.VideoConfig
 import com.openavplugin.provider.VideoSource.Frame
 import com.openavplugin.provider.video.LocalFileVideoSource
 import com.openavplugin.provider.video.StreamVideoSource
+import com.openavplugin.provider.video.BlockVideoSource
 import kotlinx.coroutines.*
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -47,7 +48,9 @@ class CameraHooker(
     private val isFeeding = AtomicBoolean(false)
 
     fun hook() {
-        initializeVideoSource()
+        if (config.sourceType != "block" && config.sourceType != "CAMERA_BLOCK") {
+            initializeVideoSource()
+        }
         hookCamera2()
         hookCamera1()
     }
@@ -63,6 +66,10 @@ class CameraHooker(
                     val ctx = getApplicationContext()
                     if (ctx != null) StreamVideoSource(ctx) else null
                 } else null
+            }
+            "block", "CAMERA_BLOCK" -> {
+                // Privacy mode: always return empty frames
+                BlockVideoSource()
             }
             else -> null
         }
@@ -94,7 +101,6 @@ class CameraHooker(
             val cameraManagerClass = classOrNull("android.hardware.camera2.CameraManager")
                 ?: return
 
-            // Hook CameraManager.openCamera to intercept camera open
             XposedHelpers.findAndHookMethod(
                 cameraManagerClass,
                 "openCamera",
@@ -133,7 +139,6 @@ class CameraHooker(
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val cameraId = param.args[0] as Int
                         XposedBridge.log("$TAG: Camera.open intercepted for camera $cameraId")
-                        // Hook the Camera instance to inject preview frames
                         val camera = param.result ?: return
                         hookCamera1Preview(camera, cameraId.toString())
                     }
@@ -207,6 +212,7 @@ class CameraHooker(
 
     private fun hookCreateCaptureSession(camera: CameraDevice, cameraId: String) {
         try {
+            val isBlockMode = config.sourceType == "block" || config.sourceType == "CAMERA_BLOCK"
             XposedHelpers.findAndHookMethod(
                 camera.javaClass,
                 "createCaptureSession",
@@ -222,6 +228,13 @@ class CameraHooker(
                         // Store surfaces for frame feeding
                         captureSurfaces[cameraId] = surfaces.toMutableList()
 
+                        if (isBlockMode) {
+                            // Block real camera output: replace callback
+                            @Suppress("UNCHECKED_CAST")
+                            val originalSessionCallback = param.args[1] as CameraCaptureSession.StateCallback
+                            param.args[1] = BlockSessionCallback(cameraId, originalSessionCallback)
+                        }
+
                         // Start feeding frames if a video source is configured
                         if (videoSource?.isReady() == true) {
                             startFrameFeeding(cameraId, surfaces)
@@ -231,6 +244,20 @@ class CameraHooker(
             )
         } catch (e: Throwable) {
             XposedBridge.log("$TAG: Failed to hook createCaptureSession: ${e.message}")
+        }
+    }
+
+    private inner class BlockSessionCallback(
+        private val cameraId: String,
+        private val originalCallback: CameraCaptureSession.StateCallback
+    ) : CameraCaptureSession.StateCallback() {
+        override fun onConfigured(session: CameraCaptureSession) {
+            XposedBridge.log("$TAG: Capture session configured — closing immediately (privacy mode)")
+            try { session.close() } catch (_: Exception) {}
+            originalCallback.onConfigured(session)
+        }
+        override fun onConfigureFailed(session: CameraCaptureSession) {
+            originalCallback.onConfigureFailed(session)
         }
     }
 

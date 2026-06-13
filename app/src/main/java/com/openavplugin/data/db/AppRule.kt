@@ -64,5 +64,6 @@ enum class SourceType {
     LOCAL_AUDIO,
     NETWORK_STREAM,
     SCREEN_CAPTURE,
-    SYSTEM_AUDIO
+    SYSTEM_AUDIO,
+    CAMERA_BLOCK
 }

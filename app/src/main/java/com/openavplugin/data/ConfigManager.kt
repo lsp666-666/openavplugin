@@ -24,6 +24,7 @@ class ConfigManager(private val context: Context) {
         val RUNTIME_MODE = stringPreferencesKey("runtime_mode")
         val LOG_LEVEL = stringPreferencesKey("log_level")
         val BOOT_AUTO_START = booleanPreferencesKey("boot_auto_start")
+        val LOG_SERVER_ENABLED = booleanPreferencesKey("log_server_enabled")
     }
 
     private val dataStore = context.dataStore
@@ -50,6 +51,9 @@ class ConfigManager(private val context: Context) {
     val bootAutoStart: Flow<Boolean> = dataStore.data
         .map { it[BOOT_AUTO_START] ?: true }
 
+    val logServerEnabled: Flow<Boolean> = dataStore.data
+        .map { it[LOG_SERVER_ENABLED] ?: false }
+
     suspend fun setGlobalCameraEnabled(enabled: Boolean) {
         dataStore.edit { it[GLOBAL_CAMERA_ENABLED] = enabled }
     }
@@ -70,6 +74,10 @@ class ConfigManager(private val context: Context) {
 
     suspend fun setBootAutoStart(enabled: Boolean) {
         dataStore.edit { it[BOOT_AUTO_START] = enabled }
+    }
+
+    suspend fun setLogServerEnabled(enabled: Boolean) {
+        dataStore.edit { it[LOG_SERVER_ENABLED] = enabled }
     }
 
     /**

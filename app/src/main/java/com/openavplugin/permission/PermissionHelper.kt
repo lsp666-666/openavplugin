@@ -120,7 +120,7 @@ class PermissionHelper(private val activity: ComponentActivity) {
     }
 
     fun hasAllPermissions(): Boolean {
-        return hasStoragePermission() && hasNotificationPermission()
+        return hasStoragePermission() && hasNotificationPermission() && hasAppListPermission(activity)
     }
 
     companion object {
@@ -141,6 +141,25 @@ class PermissionHelper(private val activity: ComponentActivity) {
                     context,
                     Manifest.permission.POST_NOTIFICATIONS
                 ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            }
+        }
+
+        fun hasAppListPermission(context: Context): Boolean {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // QUERY_ALL_PACKAGES isn't a standard runtime permission;
+                // test actual package visibility instead
+                try {
+                    val pm = context.packageManager
+                    val apps = pm.getInstalledApplications(0)
+                    val launchable = apps.filter {
+                        pm.getLaunchIntentForPackage(it.packageName) != null
+                    }
+                    launchable.size > 1
+                } catch (_: Exception) {
+                    false
+                }
             } else {
                 true
             }

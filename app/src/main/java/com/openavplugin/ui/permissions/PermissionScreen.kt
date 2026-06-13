@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -27,6 +28,9 @@ fun PermissionScreen(
     val context = LocalContext.current
     var storagePermission by remember { mutableStateOf(PermissionHelper.hasStoragePermission(context)) }
     var notificationPermission by remember { mutableStateOf(PermissionHelper.hasNotificationPermission(context)) }
+
+    // Intercept system back button
+    BackHandler { onNavigateBack() }
 
     Scaffold(
         topBar = {

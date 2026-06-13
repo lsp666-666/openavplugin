@@ -1,8 +1,13 @@
 package com.openavplugin.root
 
+import android.content.Context
+import android.content.pm.PackageManager
+import com.openavplugin.util.Logger
 import java.io.File
 
 object RootChecker {
+    private const val TAG = "RootChecker"
+
     fun isRooted(): Boolean {
         return checkSuExists() || checkMagisk() || checkBusyBox()
     }
@@ -40,30 +45,42 @@ object RootChecker {
         }
     }
 
-    fun isLSPosedActive(): Boolean {
-        return try {
-            // 方式1: 检查 XposedBridge 类是否加载（最可靠）
+    fun isLSPosedActive(context: Context): Boolean {
+        // Method 1: Check if XposedBridge is loaded in current process
+        try {
             Class.forName("de.robv.android.xposed.XposedBridge")
-            true
-        } catch (e: ClassNotFoundException) {
-            // 方式2: 检查 LSPosed Manager 应用
-            checkLSPosedManager() ||
-            // 方式3: 检查系统属性
-            checkLSPosedProperties() ||
-            // 方式4: 检查文件路径（备用）
-            checkLSPosedFiles()
+            Logger.i(TAG, "Detected: XposedBridge loaded in process")
+            return true
+        } catch (_: ClassNotFoundException) {
+            Logger.d(TAG, "XposedBridge not in current process")
         }
+
+        // Method 2: Check for hook status file (written by HookEntry)
+        val statusFile = java.io.File(context.filesDir, "hook_status.txt")
+        if (statusFile.exists() && statusFile.length() > 0) {
+            Logger.i(TAG, "Detected: hook_status.txt exists")
+            return true
+        }
+
+        // Method 3: Check LSPosed packages
+        val lspPkgs = listOf("org.lsposed.manager", "org.lsposed.lspd")
+        for (pkg in lspPkgs) {
+            if (checkPackageInstalled(context, pkg)) {
+                Logger.i(TAG, "Detected: package $pkg installed")
+                return true
+            }
+        }
+
+        return false
     }
 
-    private fun checkLSPosedManager(): Boolean {
+    private fun checkPackageInstalled(context: Context, packageName: String): Boolean {
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("pm", "list", "packages"))
-            val reader = process.inputStream.bufferedReader()
-            val packages = reader.readText()
-            packages.contains("org.lsposed.manager") ||
-            packages.contains("org.lsposed.lspd") ||
-            packages.contains("com.android.shell.lsposed")
-        } catch (e: Exception) {
+            context.packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        } catch (_: Exception) {
             false
         }
     }
@@ -79,11 +96,12 @@ object RootChecker {
         }
     }
 
-    private fun checkLSPosedFiles(): Boolean {
+    private fun checkModulesDirectory(): Boolean {
         return try {
-            File("/data/adb/lspd").exists() ||
-            File("/data/adb/modules/lsposed").exists() ||
-            File("/data/adb/modules/lsposed_manager").exists()
+            val modulesDir = File("/data/adb/modules")
+            if (!modulesDir.exists() || !modulesDir.isDirectory) return false
+            val files = modulesDir.listFiles() ?: return false
+            files.any { it.name.contains("lsposed", ignoreCase = true) }
         } catch (e: Exception) {
             false
         }
