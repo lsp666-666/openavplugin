@@ -39,12 +39,109 @@ fun MainScaffold() {
     var subScreen by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    var showPermissionDialog by remember { mutableStateOf(false) }
+    var permStep by remember { mutableStateOf(0) }
+    val permSteps = remember {
+        listOf(
+            Triple("存储权限", "需要访问存储空间以保存配置文件", "storage"),
+            Triple("通知权限", "需要通知权限以保持后台运行", "notification"),
+            Triple("应用列表", "需要获取应用列表以配置 Hook", "applist")
+        )
+    }
 
-    // Restart LogServer on resume if killed in background
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("openavplugin_boot", 0)
+        val askedPerms = prefs.getBoolean("asked_permissions", false)
+        if (!askedPerms) {
+            val missing = mutableListOf<Int>()
+            if (!com.openavplugin.permission.PermissionHelper.hasStoragePermission(context)) missing.add(0)
+            if (!com.openavplugin.permission.PermissionHelper.hasNotificationPermission(context)) missing.add(1)
+            if (!com.openavplugin.permission.PermissionHelper.hasAppListPermission(context)) missing.add(2)
+            if (missing.isNotEmpty()) { permStep = missing.first(); showPermissionDialog = true }
+            prefs.edit().putBoolean("asked_permissions", true).apply()
+        }
+    }
+
+    // Sequential permission wizard
+    if (showPermissionDialog) {
+        val (title, desc, key) = permSteps[permStep]
+        AlertDialog(
+            onDismissRequest = { showPermissionDialog = false },
+            title = { Text(title) },
+            text = { Text(desc) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPermissionDialog = false
+                    // When user returns from settings, re-check permissions
+                    val prefs = context.getSharedPreferences("openavplugin_boot", 0)
+                    prefs.edit().putBoolean("perm_pending", true).apply()
+                    // Trigger system dialog
+                    when (key) {
+                        "storage" -> {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                data = android.net.Uri.parse("package:${context.packageName}")
+                            }
+                            context.startActivity(intent)
+                        }
+                        "notification" -> {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            }
+                            context.startActivity(intent)
+                        }
+                        "applist" -> {
+                            if (com.openavplugin.permission.PermissionHelper.isMiuiAppListPermissionSupported(context)) {
+                                // Navigate to permission guide for MIUI runtime dialog
+                                subScreen = "permission_guide"
+                            } else {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = android.net.Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            }
+                        }
+                    }
+                }) { Text("授权") }
+            },
+            dismissButton = {
+                // Skip to next missing permission, or finish
+                val remaining = listOf(0, 1, 2).filter { idx ->
+                    idx > permStep && when (idx) {
+                        0 -> !com.openavplugin.permission.PermissionHelper.hasStoragePermission(context)
+                        1 -> !com.openavplugin.permission.PermissionHelper.hasNotificationPermission(context)
+                        2 -> !com.openavplugin.permission.PermissionHelper.hasAppListPermission(context)
+                        else -> false
+                    }
+                }
+                TextButton(onClick = {
+                    if (remaining.isNotEmpty()) {
+                        permStep = remaining.first()
+                    } else {
+                        showPermissionDialog = false
+                    }
+                }) { Text("跳过") }
+            }
+        )
+    }
+
+
+
+    // Restart LogServer on resume, continue permission wizard
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 LogServer.start(context)
+                if (!showPermissionDialog) {
+                    val prefs = context.getSharedPreferences("openavplugin_boot", 0)
+                    if (prefs.getBoolean("perm_pending", false)) {
+                        prefs.edit().putBoolean("perm_pending", false).apply()
+                        val missing = mutableListOf<Int>()
+                        if (!com.openavplugin.permission.PermissionHelper.hasStoragePermission(context)) missing.add(0)
+                        if (!com.openavplugin.permission.PermissionHelper.hasNotificationPermission(context)) missing.add(1)
+                        if (!com.openavplugin.permission.PermissionHelper.hasAppListPermission(context)) missing.add(2)
+                        if (missing.isNotEmpty()) { permStep = missing.first(); showPermissionDialog = true }
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -126,9 +223,12 @@ fun MainScaffold() {
                 // ── Sub-page content ──
                 when {
                     sub.startsWith("app_config:") -> {
-                        val pkg = sub.removePrefix("app_config:")
+                        val parts = sub.removePrefix("app_config:").split("||", limit = 2)
+                        val pkg = parts[0]
+                        val name = parts.getOrNull(1)
                         AppConfigScreen(
                             packageName = pkg,
+                            appDisplayName = name,
                             onNavigateBack = { subScreen = null }
                         )
                     }
@@ -151,7 +251,7 @@ fun MainScaffold() {
                             onNavigateToPermissionGuide = { subScreen = "permission_guide" }
                         )
                         1 -> AppListScreen(
-                            onAppClick = { pkg -> subScreen = "app_config:$pkg" }
+                            onAppClick = { pkg, name -> subScreen = "app_config:$pkg||$name" }
                         )
                         2 -> SourceManagerScreen()
                         3 -> SettingsScreen()

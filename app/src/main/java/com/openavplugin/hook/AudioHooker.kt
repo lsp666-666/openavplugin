@@ -11,12 +11,14 @@ import com.openavplugin.provider.AudioSource
 import com.openavplugin.provider.AudioConfig
 import com.openavplugin.provider.audio.SilenceAudioSource
 import com.openavplugin.provider.audio.LocalFileAudioSource
+import org.json.JSONObject
 import kotlinx.coroutines.*
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ConcurrentHashMap
 
 class AudioHooker(
     private val lpparam: XC_LoadPackage.LoadPackageParam,
-    private val config: AudioHookConfig
+    private val packageName: String
 ) {
     data class AudioHookConfig(
         val sourceType: String = "silence",
@@ -36,42 +38,24 @@ class AudioHooker(
     private val audioSources = ConcurrentHashMap<Any, AudioSource>()
 
     fun hook() {
-        initializeAudioSource()
+        XposedBridge.log("$TAG: Installing hooks for process=${lpparam.processName}")
         hookAudioRecord()
         hookMediaRecorder()
     }
 
-    private fun initializeAudioSource() {
-        audioSource = when (config.sourceType) {
-            "silence", "SILENCE" -> SilenceAudioSource()
-            else -> when {
-                config.sourcePath != null -> LocalFileAudioSource()
-                else -> SilenceAudioSource()
-            }
-        }
-
-        scope.launch {
-            try {
-                audioSource?.initialize(
-                    AudioConfig(
-                        sampleRate = config.sampleRate,
-                        channels = config.channels,
-                        sourcePath = config.sourcePath
-                    )
-                )
-                XposedBridge.log("$TAG: AudioSource initialized (type=${config.sourceType})")
-            } catch (e: Exception) {
-                XposedBridge.log("$TAG: Failed to initialize AudioSource: ${e.message}")
-            }
-        }
-    }
-
     private fun hookAudioRecord() {
         try {
-            val audioRecordClass = XposedHelpers.findClass(
-                "android.media.AudioRecord",
-                lpparam.classLoader
-            )
+            // Use Class.forName to ensure we hook the system class, not app-specific
+            val audioRecordClass = Class.forName("android.media.AudioRecord")
+
+            // Diagnostic: log when AudioRecord instance is created
+            try {
+                XposedBridge.hookAllConstructors(audioRecordClass, object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        XposedBridge.log("$TAG: AudioRecord created in ${lpparam.processName}")
+                    }
+                })
+            } catch (_: Throwable) { }
 
             // Hook startRecording — mark instance as virtual
             XposedHelpers.findAndHookMethod(
@@ -80,122 +64,264 @@ class AudioHooker(
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         XposedBridge.log("$TAG: AudioRecord.startRecording intercepted")
-                        val instance = param.thisObject
-                        XposedHelpers.setAdditionalInstanceField(instance, FIELD_USE_VIRTUAL, true)
-
-                        // Assign an audio source if configured
-                        val source = audioSource
-                        if (source != null) {
-                            XposedHelpers.setAdditionalInstanceField(instance, FIELD_AUDIO_SOURCE, source)
-                            audioSources[instance] = source
-                        }
+                        markVirtual(param.thisObject)
                     }
                 }
             )
+
+            // Hook startRecording(MediaSyncEvent) — API 24+
+            try {
+                val syncEventClass = XposedHelpers.findClass(
+                    "android.media.MediaSyncEvent", lpparam.classLoader
+                )
+                XposedHelpers.findAndHookMethod(
+                    audioRecordClass, "startRecording", syncEventClass,
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            XposedBridge.log("$TAG: AudioRecord.startRecording(sync) intercepted")
+                            markVirtual(param.thisObject)
+                        }
+                    }
+                )
+            } catch (_: Throwable) { }
 
             // Hook read(short[]) — inject virtual audio
-            XposedHelpers.findAndHookMethod(
-                audioRecordClass,
-                "read",
-                ShortArray::class.java,
-                Int::class.java,
-                Int::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (!isVirtualInstance(param.thisObject)) return
-
-                        val audioData = param.args[0] as ShortArray
-                        val offset = param.args[1] as Int
-                        val size = param.args[2] as Int
-                        val source = getSourceForInstance(param.thisObject)
-
-                        // Read actual audio data from source
-                        val bytesRead = readFromSource(source, audioData, offset, size)
-                        if (bytesRead > 0) {
-                            param.result = bytesRead
-                        }
-                    }
-                }
-            )
-
+            hookReadShort(audioRecordClass)
             // Hook read(byte[]) — inject virtual audio
-            XposedHelpers.findAndHookMethod(
-                audioRecordClass,
-                "read",
-                ByteArray::class.java,
-                Int::class.java,
-                Int::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (!isVirtualInstance(param.thisObject)) return
+            hookReadByte(audioRecordClass)
+            // Hook read(ByteBuffer) — direct buffer
+            hookReadByteBuffer(audioRecordClass)
+            // Hook read(float[]) — API 23+
+            try { hookReadFloat(audioRecordClass) } catch (_: Throwable) {}
 
-                        val audioData = param.args[0] as ByteArray
-                        val offset = param.args[1] as Int
-                        val size = param.args[2] as Int
-                        val source = getSourceForInstance(param.thisObject)
-
-                        val bytesRead = readFromSourceBytes(source, audioData, offset, size)
-                        if (bytesRead > 0) {
-                            param.result = bytesRead
-                        }
-                    }
-                }
-            )
-
-            // Hook read(byte[], int, int) for direct buffer access
-            XposedHelpers.findAndHookMethod(
-                audioRecordClass,
-                "read",
-                java.nio.ByteBuffer::class.java,
-                Int::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (!isVirtualInstance(param.thisObject)) return
-
-                        val buffer = param.args[0] as java.nio.ByteBuffer
-                        val size = param.args[1] as Int
-                        val source = getSourceForInstance(param.thisObject)
-
-                        val tempBuffer = ByteArray(size)
-                        val bytesRead = readFromSourceBytes(source, tempBuffer, 0, size)
-                        if (bytesRead > 0) {
-                            buffer.put(tempBuffer, 0, bytesRead)
-                            param.result = bytesRead
-                        }
-                    }
-                }
-            )
+            // Hook setRecordPositionUpdateListener — callback mode
+            try { hookCallbackListener(audioRecordClass) } catch (_: Throwable) {}
 
             // Hook stop + release to clean up
-            XposedHelpers.findAndHookMethod(
-                audioRecordClass,
-                "stop",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isVirtualInstance(param.thisObject)) {
-                            XposedBridge.log("$TAG: AudioRecord.stop — cleaning up virtual source")
-                            cleanupInstance(param.thisObject)
-                        }
-                    }
-                }
-            )
-
-            XposedHelpers.findAndHookMethod(
-                audioRecordClass,
-                "release",
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (isVirtualInstance(param.thisObject)) {
-                            cleanupInstance(param.thisObject)
-                        }
-                    }
-                }
-            )
+            hookStopRelease(audioRecordClass)
 
             XposedBridge.log("$TAG: AudioRecord hooks installed")
+
+            // Hook AudioRecord.Builder.build() — ensure builder-created instances are caught
+            try {
+                val builderClass = XposedHelpers.findClass(
+                    "android.media.AudioRecord\$Builder", lpparam.classLoader
+                )
+                XposedHelpers.findAndHookMethod(
+                    builderClass, "build",
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            XposedBridge.log("$TAG: AudioRecord.Builder.build() — pre-marking virtual")
+                            // Don't mark here — wait for startRecording
+                        }
+                    }
+                )
+            } catch (_: Throwable) { }
         } catch (e: Throwable) {
             XposedBridge.log("$TAG: Failed to hook AudioRecord: ${e.message}")
         }
+    }
+
+    private fun markVirtual(instance: Any) {
+        // Reload latest config on each recording start
+        val freshConfig = loadLatestConfig()
+        XposedBridge.log("$TAG: startRecording — sourceType=${freshConfig.sourceType}")
+        
+        // Switch audio source
+        try { kotlinx.coroutines.runBlocking { audioSource?.release() } } catch (_: Exception) { }
+        audioSource = createSource(freshConfig)
+        kotlinx.coroutines.runBlocking {
+            try {
+                audioSource?.initialize(AudioConfig(
+                    sampleRate = freshConfig.sampleRate,
+                    channels = freshConfig.channels,
+                    sourcePath = freshConfig.sourcePath
+                ))
+            } catch (e: Exception) {
+                XposedBridge.log("$TAG: Source init failed: ${e.message}")
+            }
+        }
+        
+        XposedHelpers.setAdditionalInstanceField(instance, FIELD_USE_VIRTUAL, true)
+        if (audioSource != null) {
+            XposedHelpers.setAdditionalInstanceField(instance, FIELD_AUDIO_SOURCE, audioSource)
+            audioSources[instance] = audioSource!!
+        }
+    }
+
+    private fun loadLatestConfig(): AudioHookConfig {
+        return try {
+            val path = java.io.File("/data/local/tmp/openavplugin_rules.json")
+            if (!path.exists()) return AudioHookConfig()
+            val json = org.json.JSONObject(path.readText())
+            val appConfig = json.optJSONObject(packageName)
+            if (appConfig != null) {
+                AudioHookConfig(
+                    sourceType = appConfig.optString("micSourceType", "silence"),
+                    sourcePath = appConfig.optString("micSourcePath", null).ifEmpty { null },
+                    sampleRate = appConfig.optInt("micSampleRate", 44100),
+                    channels = appConfig.optInt("micChannels", 1)
+                )
+            } else AudioHookConfig()
+        } catch (_: Exception) { AudioHookConfig() }
+    }
+
+    private fun createSource(config: AudioHookConfig): AudioSource? {
+        return when (config.sourceType) {
+            "silence", "SILENCE" -> SilenceAudioSource()
+            else -> {
+                if (config.sourcePath != null) LocalFileAudioSource() else SilenceAudioSource()
+            }
+        }
+    }
+
+    private fun hookReadShort(audioRecordClass: Class<*>) {
+        XposedHelpers.findAndHookMethod(
+            audioRecordClass, "read", ShortArray::class.java, Int::class.java, Int::class.java,
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (!isVirtualInstance(param.thisObject)) return
+                    val audioData = param.args[0] as ShortArray
+                    val offset = param.args[1] as Int
+                    val size = param.args[2] as Int
+                    val source = getSourceForInstance(param.thisObject)
+                    val bytesRead = readFromSource(source, audioData, offset, size)
+                    if (bytesRead > 0) param.result = bytesRead
+                }
+            }
+        )
+    }
+
+    private fun hookReadByte(audioRecordClass: Class<*>) {
+        XposedHelpers.findAndHookMethod(
+            audioRecordClass, "read", ByteArray::class.java, Int::class.java, Int::class.java,
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (!isVirtualInstance(param.thisObject)) return
+                    val audioData = param.args[0] as ByteArray
+                    val offset = param.args[1] as Int
+                    val size = param.args[2] as Int
+                    val source = getSourceForInstance(param.thisObject)
+                    val bytesRead = readFromSourceBytes(source, audioData, offset, size)
+                    if (bytesRead > 0) param.result = bytesRead
+                }
+            }
+        )
+    }
+
+    private fun hookReadFloat(audioRecordClass: Class<*>) {
+        XposedHelpers.findAndHookMethod(
+            audioRecordClass, "read", FloatArray::class.java, Int::class.java, Int::class.java, Int::class.java,
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (!isVirtualInstance(param.thisObject)) return
+                    val audioData = param.args[0] as FloatArray
+                    val offset = param.args[1] as Int
+                    val size = param.args[2] as Int
+                    val source = getSourceForInstance(param.thisObject)
+                    // Fill with zeros (silence) for float samples
+                    val safeEnd = (offset + size).coerceAtMost(audioData.size)
+                    audioData.fill(0f, offset, safeEnd)
+                    param.result = size
+                }
+            }
+        )
+    }
+
+    private fun hookReadByteBuffer(audioRecordClass: Class<*>) {
+        XposedHelpers.findAndHookMethod(
+            audioRecordClass, "read", java.nio.ByteBuffer::class.java, Int::class.java,
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (!isVirtualInstance(param.thisObject)) return
+                    val buffer = param.args[0] as java.nio.ByteBuffer
+                    val size = param.args[1] as Int
+                    val source = getSourceForInstance(param.thisObject)
+                    val tempBuffer = ByteArray(size)
+                    val bytesRead = readFromSourceBytes(source, tempBuffer, 0, size)
+                    if (bytesRead > 0) {
+                        buffer.put(tempBuffer, 0, bytesRead)
+                        param.result = bytesRead
+                    }
+                }
+            }
+        )
+    }
+
+    private fun hookCallbackListener(audioRecordClass: Class<*>) {
+        XposedHelpers.findAndHookMethod(
+            audioRecordClass, "setRecordPositionUpdateListener",
+            android.media.AudioRecord.OnRecordPositionUpdateListener::class.java,
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (!isVirtualInstance(param.thisObject)) return
+                    val originalListener = param.args[0] as? android.media.AudioRecord.OnRecordPositionUpdateListener
+                    if (originalListener != null) {
+                        XposedBridge.log("$TAG: Replacing record position listener with virtual")
+                        param.args[0] = VirtualRecordListener(originalListener, param.thisObject)
+                    }
+                }
+            }
+        )
+        // Also hook the overload with Handler
+        XposedHelpers.findAndHookMethod(
+            audioRecordClass, "setRecordPositionUpdateListener",
+            android.media.AudioRecord.OnRecordPositionUpdateListener::class.java,
+            android.os.Handler::class.java,
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (!isVirtualInstance(param.thisObject)) return
+                    val originalListener = param.args[0] as? android.media.AudioRecord.OnRecordPositionUpdateListener
+                    if (originalListener != null) {
+                        param.args[0] = VirtualRecordListener(originalListener, param.thisObject)
+                    }
+                }
+            }
+        )
+    }
+
+    private inner class VirtualRecordListener(
+        private val original: android.media.AudioRecord.OnRecordPositionUpdateListener,
+        private val recordInstance: Any
+    ) : android.media.AudioRecord.OnRecordPositionUpdateListener {
+        override fun onMarkerReached(recorder: android.media.AudioRecord?) {
+            // Feed silence before calling original
+            injectVirtualData(recordInstance)
+            original.onMarkerReached(recorder)
+        }
+        override fun onPeriodicNotification(recorder: android.media.AudioRecord?) {
+            injectVirtualData(recordInstance)
+            original.onPeriodicNotification(recorder)
+        }
+        private fun injectVirtualData(instance: Any) {
+            try {
+                val buffer = ShortArray(1024)
+                val source = getSourceForInstance(instance)
+                readFromSource(source, buffer, 0, buffer.size)
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private fun hookStopRelease(audioRecordClass: Class<*>) {
+        XposedHelpers.findAndHookMethod(audioRecordClass, "stop",
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (isVirtualInstance(param.thisObject)) {
+                        XposedBridge.log("$TAG: AudioRecord.stop — cleaning up virtual source")
+                        cleanupInstance(param.thisObject)
+                    }
+                }
+            }
+        )
+        XposedHelpers.findAndHookMethod(audioRecordClass, "release",
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    if (isVirtualInstance(param.thisObject)) {
+                        cleanupInstance(param.thisObject)
+                    }
+                }
+            }
+        )
     }
 
     private fun hookMediaRecorder() {

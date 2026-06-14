@@ -229,16 +229,29 @@ private fun checkNotificationPermission(context: Context): PermissionItem {
 
 private fun checkAppListPermission(context: Context): PermissionItem {
     val isGranted = PermissionHelper.hasAppListPermission(context)
+    val isMiui = PermissionHelper.isMiuiAppListPermissionSupported(context)
     return PermissionItem(
         name = context.getString(R.string.app_list_permission),
         description = context.getString(R.string.app_list_permission_desc),
         isGranted = isGranted,
-        actionLabel = context.getString(R.string.grant_permission),
+        actionLabel = if (isMiui && !isGranted) "立即授权" else context.getString(R.string.grant_permission),
         action = {
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${context.packageName}")
+            if (isMiui && !isGranted) {
+                // MIUI: request runtime permission directly
+                val activity = context as? android.app.Activity
+                if (activity != null) {
+                    androidx.core.app.ActivityCompat.requestPermissions(
+                        activity,
+                        arrayOf("com.android.permission.GET_INSTALLED_APPS"),
+                        999
+                    )
+                }
+            } else {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+                context.startActivity(intent)
             }
-            context.startActivity(intent)
         }
     )
 }

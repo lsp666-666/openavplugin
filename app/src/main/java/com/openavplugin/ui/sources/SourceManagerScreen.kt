@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.openavplugin.R
@@ -224,6 +225,9 @@ fun AudioSourceContent(
     onSourceTypeChanged: (SourceType) -> Unit
 ) {
     var audioFiles by remember { mutableStateOf(listOf<String>()) }
+    var playingFile by remember { mutableStateOf<String?>(null) }
+    val mediaPlayer = remember { android.media.MediaPlayer() }
+    val context = LocalContext.current
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -282,6 +286,29 @@ fun AudioSourceContent(
                             stringResource(R.string.local_audio_files),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    IconButton(onClick = {
+                        if (playingFile == file) {
+                            mediaPlayer.stop()
+                            mediaPlayer.reset()
+                            playingFile = null
+                        } else {
+                            try {
+                                mediaPlayer.reset()
+                                val uri = Uri.parse(file)
+                                mediaPlayer.setDataSource(context, uri)
+                                mediaPlayer.prepare()
+                                mediaPlayer.start()
+                                playingFile = file
+                            } catch (_: Exception) {
+                                playingFile = null
+                            }
+                        }
+                    }) {
+                        Icon(
+                            if (playingFile == file) Icons.Default.Close else Icons.Default.PlayArrow,
+                            contentDescription = null
                         )
                     }
                     IconButton(onClick = { audioFiles = audioFiles - file }) {

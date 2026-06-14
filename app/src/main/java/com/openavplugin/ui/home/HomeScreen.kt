@@ -211,59 +211,29 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.outline
                     )
                 } else {
-                    activeRules.forEach { rule ->
+                    activeRules.distinctBy { it.packageName }.forEach { rule ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(rule.appName)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(rule.appName, style = MaterialTheme.typography.bodyLarge)
+                                Text(rule.packageName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            }
                             Row {
                                 if (rule.cameraEnabled) {
-                                    Icon(
-                                        Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
+                                    Text("📷", style = MaterialTheme.typography.labelSmall)
                                 }
                                 if (rule.micEnabled) {
-                                    Icon(
-                                        Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
+                                    Text("🎤", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 4.dp))
                                 }
                             }
                         }
                     }
                 }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Hook status card
-        val hookStatus = remember { mutableStateOf(readHookStatus(context)) }
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = if (hookStatus.value.contains("installed"))
-                    MaterialTheme.colorScheme.primaryContainer
-                else
-                    MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Hook Status", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    hookStatus.value,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (hookStatus.value.contains("installed"))
-                        MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outline
-                )
             }
         }
     }

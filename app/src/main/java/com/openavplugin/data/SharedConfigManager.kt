@@ -15,6 +15,7 @@ class SharedConfigManager(private val context: Context) {
 
     fun saveRule(rule: AppRule) {
         val json = loadAllRules()
+        val before = json.length()
         val appJson = JSONObject().apply {
             put("packageName", rule.packageName)
             put("appName", rule.appName)
@@ -26,6 +27,8 @@ class SharedConfigManager(private val context: Context) {
             put("micSourcePath", rule.micSourcePath ?: "")
         }
         json.put(rule.packageName, appJson)
+        val after = json.length()
+        Logger.i(TAG, "Rule save: ${rule.packageName} — file had $before apps, now $after apps")
         saveAllRules(json)
         Logger.i(TAG, "Rule saved: ${rule.packageName} camera=${rule.cameraEnabled} mic=${rule.micEnabled}")
     }
@@ -73,16 +76,19 @@ class SharedConfigManager(private val context: Context) {
             hookFile.writeText(json.toString(2))
             hookFile.setReadable(true, false)
             Logger.i(TAG, "Config saved to files dir: ${hookFile.absolutePath}")
-            // Copy to /data/local/tmp/ via su — only truly world-readable location
-            Thread({
-                try {
-                    val tmpPath = "/data/local/tmp/openavplugin_rules.json"
-                    Runtime.getRuntime().exec(arrayOf("su", "-c", "cp ${hookFile.absolutePath} $tmpPath && chmod 644 $tmpPath")).waitFor()
+            // Copy to /data/local/tmp/ via su — must finish for HookEntry to see it
+            try {
+                val tmpPath = "/data/local/tmp/openavplugin_rules.json"
+                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", "cp ${hookFile.absolutePath} $tmpPath && chmod 644 $tmpPath"))
+                proc.waitFor()
+                if (proc.exitValue() == 0) {
                     Logger.i(TAG, "Config copied to $tmpPath via su")
-                } catch (_: Exception) {
-                    Logger.w(TAG, "su copy failed — grant root to OpenAVPlugin in Magisk")
+                } else {
+                    Logger.w(TAG, "su cp failed with exit code ${proc.exitValue()}")
                 }
-            }).start()
+            } catch (e: Exception) {
+                Logger.w(TAG, "su copy failed: ${e.message}")
+            }
         } catch (e: Exception) {
             Logger.e(TAG, "Failed to write config: ${e.message}")
         }

@@ -120,7 +120,7 @@ class AppListViewModel @Inject constructor(
 @Composable
 fun AppListScreen(
     viewModel: AppListViewModel = hiltViewModel(),
-    onAppClick: (String) -> Unit
+    onAppClick: (String, String) -> Unit // packageName, appName
 ) {
     val context = LocalContext.current
     val searchQuery by viewModel.searchQuery
@@ -157,42 +157,34 @@ fun AppListScreen(
             )
 
             if (needsAppListPermission) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                stringResource(R.string.app_list_permission),
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                stringResource(R.string.app_list_permission_hint),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        Button(
-                            onClick = {
-                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                    data = Uri.parse("package:${context.packageName}")
+                var showPermDialog by remember { mutableStateOf(true) }
+                if (showPermDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showPermDialog = false },
+                        title = { Text(stringResource(R.string.app_list_permission)) },
+                        text = { Text(stringResource(R.string.app_list_permission_hint)) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showPermDialog = false
+                                if (com.openavplugin.permission.PermissionHelper.isMiuiAppListPermissionSupported(context)) {
+                                    val activity = context as? android.app.Activity
+                                    if (activity != null) {
+                                        androidx.core.app.ActivityCompat.requestPermissions(
+                                            activity, arrayOf("com.android.permission.GET_INSTALLED_APPS"), 999
+                                        )
+                                    }
+                                } else {
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(intent)
                                 }
-                                context.startActivity(intent)
-                            }
-                        ) {
-                            Text(stringResource(R.string.grant_permission))
+                            }) { Text(stringResource(R.string.grant_permission)) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showPermDialog = false }) { Text("跳过") }
                         }
-                    }
+                    )
                 }
             }
 
@@ -273,7 +265,7 @@ fun AppListScreen(
                                             )
                                         }
                                     }
-                                    IconButton(onClick = { onAppClick(app.packageName) }) {
+                                    IconButton(onClick = { onAppClick(app.packageName, app.appName) }) {
                                         Icon(
                                             Icons.Default.Settings,
                                             contentDescription = null

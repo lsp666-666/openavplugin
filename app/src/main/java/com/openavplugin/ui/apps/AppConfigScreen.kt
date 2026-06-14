@@ -1,7 +1,10 @@
 package com.openavplugin.ui.apps
 
 import android.content.Context
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -39,6 +42,7 @@ class AppConfigViewModel @Inject constructor(
     private val sharedConfigManager = SharedConfigManager(context)
 
     fun loadAppRule(packageName: String) {
+        _appRule.value = null // Reset immediately for new app
         viewModelScope.launch {
             _appRule.value = ruleDao.getRule(packageName)
         }
@@ -56,7 +60,7 @@ class AppConfigViewModel @Inject constructor(
 
     fun setCameraSourceType(packageName: String, appName: String, sourceType: SourceType) {
         Logger.i("Config", "Camera source → $sourceType for $packageName")
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val current = ruleDao.getRule(packageName)
             val rule = (current ?: AppRule(packageName = packageName, appName = appName)).copy(
                 cameraEnabled = sourceType != SourceType.NONE,
@@ -72,7 +76,7 @@ class AppConfigViewModel @Inject constructor(
 
     fun setMicSourceType(packageName: String, appName: String, sourceType: SourceType) {
         Logger.i("Config", "Mic source → $sourceType for $packageName")
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val current = ruleDao.getRule(packageName)
             val rule = (current ?: AppRule(packageName = packageName, appName = appName)).copy(
                 micEnabled = sourceType != SourceType.NONE,
@@ -83,6 +87,19 @@ class AppConfigViewModel @Inject constructor(
             sharedConfigManager.saveRule(rule)
             _appRule.value = rule
             android.widget.Toast.makeText(context, "$appName: 麦克风 → ${sourceTypeLabel(sourceType, context)}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun setMicSourcePath(packageName: String, appName: String, path: String) {
+        viewModelScope.launch {
+            val current = ruleDao.getRule(packageName)
+            val rule = (current ?: AppRule(packageName = packageName, appName = appName)).copy(
+                micSourcePath = path,
+                updatedAt = System.currentTimeMillis()
+            )
+            ruleDao.insertRule(rule)
+            sharedConfigManager.saveRule(rule)
+            _appRule.value = rule
         }
     }
 }
@@ -121,27 +138,35 @@ private fun sourceTypeDisplayName(sourceType: SourceType): String = when (source
 @Composable
 fun AppConfigScreen(
     packageName: String,
+    appDisplayName: String? = null,
     viewModel: AppConfigViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit
 ) {
     val appRule by viewModel.appRule
     var cameraType by remember { mutableStateOf(SourceType.NONE) }
     var micType by remember { mutableStateOf(SourceType.NONE) }
-    var appName by remember { mutableStateOf(packageName) }
+    var appName by remember { mutableStateOf(appDisplayName ?: packageName) }
 
     // Intercept system back button
     BackHandler { onNavigateBack() }
 
-    LaunchedEffect(packageName) {
-        viewModel.loadAppRule(packageName)
-    }
+    // Force re-creation when switching apps
+    key(packageName) {
+        val appRule by viewModel.appRule
+        var cameraType by remember { mutableStateOf(SourceType.NONE) }
+        var micType by remember { mutableStateOf(SourceType.NONE) }
+        var appName by remember { mutableStateOf(appDisplayName ?: packageName) }
 
-    LaunchedEffect(appRule) {
-        appRule?.let {
-            cameraType = it.cameraSourceType
-            micType = it.micSourceType
-            appName = it.appName
+        LaunchedEffect(packageName) {
+            viewModel.loadAppRule(packageName)
         }
+
+        LaunchedEffect(appRule) {
+            appRule?.let {
+                cameraType = it.cameraSourceType
+                micType = it.micSourceType
+                appName = it.appName
+            }
     }
 
     Scaffold(
@@ -199,7 +224,34 @@ fun AppConfigScreen(
                     viewModel.setMicSourceType(packageName, appName, type)
                 }
             )
+
+            // File picker when LOCAL_AUDIO selected
+            if (micType == SourceType.LOCAL_AUDIO) {
+                val filePicker = rememberLauncherForActivityResult(
+                    ActivityResultContracts.GetContent()
+                ) { uri ->
+                    uri?.let {
+                        val path = it.toString()
+                        viewModel.setMicSourcePath(packageName, appName, path)
+                        Logger.i("Config", "Mic source path → $path")
+                    }
+                }
+                val currentPath = appRule?.micSourcePath ?: ""
+                OutlinedButton(
+                    onClick = { filePicker.launch("audio/*") },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        if (currentPath.isNotEmpty()) currentPath.substringAfterLast("/").ifEmpty { currentPath.takeLast(30) }
+                        else "选择音频文件",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
         }
+    }
     }
 }
 

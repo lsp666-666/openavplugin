@@ -18,6 +18,9 @@ class HookEntry : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     override fun initZygote(startupParam: IXposedHookZygoteInit.StartupParam) {
         modulePath = startupParam.modulePath
+        try {
+            java.io.File("/data/local/tmp", "openavplugin_module_path.txt").writeText(startupParam.modulePath)
+        } catch (_: Exception) { }
         XposedBridge.log("$TAG: initZygote — modulePath=$modulePath")
     }
 
@@ -56,13 +59,7 @@ class HookEntry : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
         // Microphone hook
         if (config.optBoolean("micEnabled", false)) {
-            val audioConfig = AudioHooker.AudioHookConfig(
-                sourceType = config.optString("micSourceType", "silence"),
-                sourcePath = config.optString("micSourcePath", null),
-                sampleRate = config.optInt("micSampleRate", 44100),
-                channels = config.optInt("micChannels", 1)
-            )
-            audioHooker = AudioHooker(lpparam, audioConfig)
+            audioHooker = AudioHooker(lpparam, packageName)
             try {
                 audioHooker?.hook()
                 hookLog("Audio hook installed")

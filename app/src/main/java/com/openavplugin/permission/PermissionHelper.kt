@@ -147,22 +147,30 @@ class PermissionHelper(private val activity: ComponentActivity) {
         }
 
         fun hasAppListPermission(context: Context): Boolean {
+            // MIUI-specific runtime permission
+            if (isMiuiAppListPermissionSupported(context)) {
+                return ContextCompat.checkSelfPermission(
+                    context, "com.android.permission.GET_INSTALLED_APPS"
+                ) == PackageManager.PERMISSION_GRANTED
+            }
+            // AOSP: test actual package visibility
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                // QUERY_ALL_PACKAGES isn't a standard runtime permission;
-                // test actual package visibility instead
                 try {
                     val pm = context.packageManager
                     val apps = pm.getInstalledApplications(0)
-                    val launchable = apps.filter {
-                        pm.getLaunchIntentForPackage(it.packageName) != null
-                    }
+                    val launchable = apps.filter { pm.getLaunchIntentForPackage(it.packageName) != null }
                     launchable.size > 1
-                } catch (_: Exception) {
-                    false
-                }
-            } else {
-                true
-            }
+                } catch (_: Exception) { false }
+            } else { true }
+        }
+
+        fun isMiuiAppListPermissionSupported(context: Context): Boolean {
+            return try {
+                val info = context.packageManager.getPermissionInfo(
+                    "com.android.permission.GET_INSTALLED_APPS", 0
+                )
+                info.packageName == "com.lbe.security.miui"
+            } catch (_: Exception) { false }
         }
     }
 }

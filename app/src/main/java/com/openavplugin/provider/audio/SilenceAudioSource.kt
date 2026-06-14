@@ -5,9 +5,13 @@ import com.openavplugin.provider.AudioSource
 
 class SilenceAudioSource : AudioSource {
     private var isInitialized = false
+    private var sampleRate = 44100
+    private var channels = 1
 
     override suspend fun initialize(config: AudioConfig) {
         isInitialized = true
+        sampleRate = config.sampleRate
+        channels = config.channels
     }
 
     override suspend fun read(buffer: ByteArray, offset: Int, size: Int): Int {
@@ -15,7 +19,12 @@ class SilenceAudioSource : AudioSource {
         val safeOffset = offset.coerceIn(0, buffer.size)
         val safeEnd = (offset + size).coerceIn(safeOffset, buffer.size)
         buffer.fill(0, safeOffset, safeEnd)
-        return safeEnd - safeOffset
+        val bytesRead = safeEnd - safeOffset
+        // Simulate real-time recording speed:
+        // buffer size / (sampleRate * channels * 2 bytes/sample) = seconds
+        val durationMs = bytesRead * 1000L / (sampleRate * channels * 2)
+        if (durationMs > 0) kotlinx.coroutines.delay(durationMs)
+        return bytesRead
     }
 
     override suspend fun release() {
